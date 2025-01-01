@@ -22,7 +22,6 @@ import {
 } from "./constants";
 import locToPos from "./utils/loc-to-pos";
 import isTextLike from "./utils/is-text-like";
-import withLineIfNeeded from "./utils/with-line-if-needed";
 import withBlockIfNeeded from "./utils/with-block-if-needed";
 import {
   withParensIfNeeded,
@@ -34,6 +33,7 @@ import {
   TSTypeParameterDeclaration,
   TSTypeParameterInstantiation,
 } from "@marko/compiler/babel-types";
+import { getLocFromNode } from "./utils/get-loc-from-node";
 type Node = types.Node;
 const defaultFilePath = resolve("index.marko");
 const rootRequire = createRequire(defaultFilePath);
@@ -221,11 +221,29 @@ export const printers: Record<string, Printer<types.Node>> = {
                 bodyDocs.push(textDoc, b.hardline, print(child));
               }
             } else {
-              bodyDocs.push(print(child));
+              bodyDocs.push(utils.stripTrailingHardline(print(child)));
+            }
+
+            // Between top-level nodes, we always include a hardline.
+            bodyDocs.push(b.hardline);
+
+            const currentLoc = getLocFromNode(childNode, true);
+            const nextLoc = getLocFromNode(node.body[i + 1]);
+
+            if (currentLoc && nextLoc) {
+              if (nextLoc.start.line - currentLoc.end.line > 1) {
+                bodyDocs.push(b.hardline);
+              } else if (
+                nextLoc.start.line - currentLoc.end.line === 1 &&
+                currentLoc.end.column === 0
+              ) {
+                // If the end of the current is at the start of the next line, add a newline because it's a lie.
+                bodyDocs.push(b.hardline);
+              }
             }
           }, "body");
 
-          return [b.join(b.hardline, bodyDocs), b.hardline];
+          return [utils.stripTrailingHardline(bodyDocs), b.hardline];
         }
         case "MarkoDocumentType":
           return `<!${node.value.replace(/\s+/g, " ").trim()}>`;
@@ -497,7 +515,7 @@ export const printers: Record<string, Printer<types.Node>> = {
           }
 
           opts.markoPreservingSpace = markoPreservingSpace;
-          return withLineIfNeeded(node, opts, b.group(doc, { id: groupId }));
+          return b.group(doc, { id: groupId });
         }
         case "MarkoAttribute": {
           const attrPath = path as AstPath<types.MarkoAttribute>;
@@ -580,18 +598,14 @@ export const printers: Record<string, Printer<types.Node>> = {
             const childNode = childPath.getNode() as types.Statement;
             if (childNode && childNode.type !== "EmptyStatement") {
               bodyDocs.push(
-                withLineIfNeeded(
-                  childNode,
-                  opts,
-                  printSpecialDeclaration(childPath, prefix, opts, print) || [
-                    prefix + " ",
-                    withBlockIfNeeded(childNode, childPath.call(print)),
-                  ],
-                ),
+                printSpecialDeclaration(childPath, prefix, opts, print) || [
+                  prefix + " ",
+                  withBlockIfNeeded(childNode, childPath.call(print)),
+                ],
               );
             }
           }, "body");
-          return b.join(b.hardline, bodyDocs);
+          return [b.join(b.hardline, bodyDocs)];
         }
         case "MarkoText": {
           const quote = opts.singleQuote ? "'" : '"';
@@ -633,14 +647,16 @@ export const printers: Record<string, Printer<types.Node>> = {
         case "Program":
           return null;
         case "MarkoClass":
-          return (toDoc) =>
-            toDoc(
+          return async (toDoc) => {
+            const doc = await toDoc(
               `class ${getOriginalCodeForNode(
                 opts as ParserOptions<types.Node>,
                 node.body,
               )}`,
               { parser: expressionParser },
             );
+            return [doc, b.hardline];
+          };
         case "MarkoTag":
           if (node.name.type === "StringLiteral") {
             switch (node.name.value) {
@@ -792,11 +808,7 @@ export const printers: Record<string, Printer<types.Node>> = {
                     doc.push("/>");
                   }
 
-                  return withLineIfNeeded(
-                    node,
-                    opts as any,
-                    b.group(doc, { id: groupId }),
-                  );
+                  return b.group(doc, { id: groupId });
                 };
               case "style": {
                 const rawValue = node.rawValue!;
@@ -815,29 +827,22 @@ export const printers: Record<string, Printer<types.Node>> = {
 
                   return async (toDoc) => {
                     try {
-                      return withLineIfNeeded(
-                        node,
-                        opts as any,
-                        b.group([
-                          "style",
-                          !lang || lang === ".css" ? "" : lang,
-                          " {",
-                          b.indent([
-                            b.line,
-                            await toDoc(code, { parser }).catch(() =>
-                              asLiteralTextContent(code.trim()),
-                            ),
-                          ]),
+                      const doc = b.group([
+                        "style",
+                        !lang || lang === ".css" ? "" : lang,
+                        " {",
+                        b.indent([
                           b.line,
-                          "}",
+                          await toDoc(code, { parser }).catch(() =>
+                            asLiteralTextContent(code.trim()),
+                          ),
                         ]),
-                      );
+                        b.line,
+                        "}",
+                      ]);
+                      return [doc, b.hardline];
                     } catch {
-                      return withLineIfNeeded(
-                        node,
-                        opts as any,
-                        asLiteralTextContent(rawValue),
-                      );
+                      return [asLiteralTextContent(rawValue), b.hardline];
                     }
                   };
                 } else {
@@ -952,11 +957,7 @@ export const printers: Record<string, Printer<types.Node>> = {
                       doc.push("/>");
                     }
 
-                    return withLineIfNeeded(
-                      node,
-                      opts as any,
-                      b.group(doc, { id: groupId }),
-                    );
+                    return [b.group(doc, { id: groupId }), b.hardline];
                   };
                 }
               }
