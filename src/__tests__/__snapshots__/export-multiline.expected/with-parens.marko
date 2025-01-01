@@ -8,6 +8,7 @@ export type IconTypeA = (
     "fatal" |
     "unknown"
 );
+
 export type IconTypeB<T> = (
   "error" |
     "information" |
@@ -19,6 +20,7 @@ export type IconTypeB<T> = (
     "unknown" |
     T
 );
+
 export type IconTypeB<
   A,
   B,
@@ -61,6 +63,7 @@ export type IconTypeB<
   M,
   N
 > = true;
+
 export var x = (
   "error" ||
   "information" ||
@@ -71,6 +74,7 @@ export var x = (
   "fatal" ||
   "unknown"
 );
+
 export const y = (
   "error" ||
   "information" ||
