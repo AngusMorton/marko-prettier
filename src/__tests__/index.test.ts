@@ -7,7 +7,12 @@ import * as plugin from "..";
 const cwd = process.cwd();
 const fixturesDir = path.join(__dirname, "fixtures");
 
-for (const entry of fs.readdirSync(fixturesDir)) {
+const runOnly: string[] = [
+  // "newlines.marko",
+  // "tag-whitespace.marko",
+];
+
+for (const entry of runOnly.length ? runOnly : fs.readdirSync(fixturesDir)) {
   if (/\.skip\./g.test(entry)) continue;
 
   const name = entry.replace(/\..*$/, "");

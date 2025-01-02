@@ -425,7 +425,19 @@ export const printers: Record<string, Printer<types.Node>> = {
             const bodyDocs = hasAttrTags
               ? (tagPath as any).map(print, "attributeTags")
               : [];
-            let textOnly = !hasAttrTags;
+            const textOnly =
+              !hasAttrTags &&
+              node.body.body.every((it) => isTextLike(it, node));
+
+            const joinSep =
+              (preserveSpace || !textOnly) &&
+              (opts.markoSyntax === "concise" ||
+                node.attributeTags?.length ||
+                node.body.body.some((child) => child.type === "MarkoScriptlet"))
+                ? b.hardline
+                : preserveSpace
+                  ? ""
+                  : b.softline;
 
             let textDocs = [] as Doc[];
             tagPath.each(
@@ -436,8 +448,10 @@ export const printers: Record<string, Printer<types.Node>> = {
                 if (isText) {
                   textDocs.push(print(childPath));
                   if (i !== lastIndex) return;
-                } else {
-                  textOnly = false;
+                }
+
+                if (i > 0) {
+                  bodyDocs.push(joinSep);
                 }
 
                 if (textDocs.length) {
@@ -463,10 +477,11 @@ export const printers: Record<string, Printer<types.Node>> = {
 
                   if (!isText) {
                     textDocs = [];
+                    bodyDocs.push(joinSep);
                     bodyDocs.push(print(childPath));
                   }
                 } else {
-                  bodyDocs.push(print(childPath));
+                  bodyDocs.push(utils.stripTrailingHardline(print(childPath)));
                 }
 
                 // If there is an extra space between nodes, include an extra newline.
@@ -491,15 +506,6 @@ export const printers: Record<string, Printer<types.Node>> = {
               "body",
             );
 
-            const joinSep =
-              (preserveSpace || !textOnly) &&
-              (opts.markoSyntax === "concise" ||
-                node.attributeTags?.length ||
-                node.body.body.some((child) => child.type === "MarkoScriptlet"))
-                ? b.hardline
-                : preserveSpace
-                  ? ""
-                  : b.softline;
             const wrapSep =
               !preserveSpace &&
               opts.markoSyntax === "html" &&
@@ -516,9 +522,9 @@ export const printers: Record<string, Printer<types.Node>> = {
             }
 
             if (joinSep || wrapSep) {
-              doc.push(b.indent([wrapSep, b.join(joinSep, bodyDocs)]));
+              doc.push(b.indent([wrapSep, bodyDocs]));
 
-              if (opts.markoSyntax === "html") {
+              if (opts.markoSyntax === "html" && wrapSep) {
                 doc.push(wrapSep);
               }
             } else {
@@ -665,16 +671,14 @@ export const printers: Record<string, Printer<types.Node>> = {
         case "Program":
           return null;
         case "MarkoClass":
-          return async (toDoc) => {
-            const doc = await toDoc(
+          return (toDoc) =>
+            toDoc(
               `class ${getOriginalCodeForNode(
                 opts as ParserOptions<types.Node>,
                 node.body,
               )}`,
               { parser: expressionParser },
             );
-            return [doc, b.hardline];
-          };
         case "MarkoTag":
           if (node.name.type === "StringLiteral") {
             switch (node.name.value) {
@@ -858,9 +862,9 @@ export const printers: Record<string, Printer<types.Node>> = {
                         b.line,
                         "}",
                       ]);
-                      return [doc, b.hardline];
+                      return doc;
                     } catch {
-                      return [asLiteralTextContent(rawValue), b.hardline];
+                      return asLiteralTextContent(rawValue);
                     }
                   };
                 } else {
@@ -975,7 +979,7 @@ export const printers: Record<string, Printer<types.Node>> = {
                       doc.push("/>");
                     }
 
-                    return [b.group(doc, { id: groupId }), b.hardline];
+                    return b.group(doc, { id: groupId });
                   };
                 }
               }
